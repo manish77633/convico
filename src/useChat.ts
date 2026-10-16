@@ -21,6 +21,7 @@ export function useChat() {
   const retryRequested = useRef(false);
   const retryCounts = useRef(new Map<string, number>());
   const messagesRef = useRef<ChatMessage[]>([]);
+  const flushRef = useRef<(() => Promise<void>) | null>(null);
 
   const replace = useCallback((next: ChatMessage[]) => {
     messagesRef.current = next;
@@ -132,10 +133,12 @@ export function useChat() {
       processing.current = false;
       if (retryRequested.current && onlineRef.current) {
         retryRequested.current = false;
-        setTimeout(() => { void flush(); }, 0);
+        setTimeout(() => { void flushRef.current?.(); }, 0);
       }
     }
   }, [patchMessage, ready, streamAnswer]);
+
+  useEffect(() => { flushRef.current = flush; }, [flush]);
 
   useEffect(() => {
     mounted.current = true;
@@ -158,7 +161,11 @@ export function useChat() {
     return () => { disposed = true; mounted.current = false; subscription(); activeAbort.current?.abort(); };
   }, [refresh]);
 
-  useEffect(() => { if (online && ready) void flush(); }, [online, ready, flush]);
+  useEffect(() => {
+    if (!online || !ready) return;
+    const timer = setTimeout(() => { void flush(); }, 0);
+    return () => clearTimeout(timer);
+  }, [online, ready, flush]);
 
   const send = useCallback(async (input: string, replyToId: string | null): Promise<boolean> => {
     const content = input.trim();

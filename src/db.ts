@@ -3,6 +3,13 @@ import type { ChatMessage, QueueItem } from './types';
 
 const database = SQLite.openDatabaseAsync('convico-chat.db');
 export const THREAD_ID = 'main';
+let writeChain: Promise<void> = Promise.resolve();
+
+function serializedWrite(task: () => Promise<void>): Promise<void> {
+  const next = writeChain.then(task, task);
+  writeChain = next.catch(() => undefined);
+  return next;
+}
 
 export async function initDatabase(): Promise<void> {
   const db = await database;
@@ -36,26 +43,26 @@ export async function getMessages(): Promise<ChatMessage[]> {
 
 export async function addUserMessage(message: ChatMessage): Promise<void> {
   const db = await database;
-  await db.withTransactionAsync(async () => {
-    await db.runAsync('INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  await serializedWrite(() => db.withExclusiveTransactionAsync(async txn => {
+    await txn.runAsync('INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       message.id, message.threadId, message.role, message.content, message.createdAt,
       message.status, message.replyToId, message.requestId, message.error);
-    await db.runAsync('INSERT INTO sync_queue(message_id, created_at) VALUES (?, ?)',
+    await txn.runAsync('INSERT INTO sync_queue(message_id, created_at) VALUES (?, ?)',
       message.id, message.createdAt);
-  });
+  }));
 }
 
 export async function addAssistantMessage(message: ChatMessage): Promise<void> {
   const db = await database;
-  await db.runAsync('INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  await serializedWrite(async () => { await db.runAsync('INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
     message.id, message.threadId, message.role, message.content, message.createdAt,
-    message.status, message.replyToId, message.requestId, message.error);
+    message.status, message.replyToId, message.requestId, message.error); });
 }
 
 export async function updateMessage(id: string, changes: Pick<ChatMessage, 'content' | 'status' | 'error'>): Promise<void> {
   const db = await database;
-  await db.runAsync('UPDATE messages SET content = ?, status = ?, error = ? WHERE id = ?',
-    changes.content, changes.status, changes.error, id);
+  await serializedWrite(async () => { await db.runAsync('UPDATE messages SET content = ?, status = ?, error = ? WHERE id = ?',
+    changes.content, changes.status, changes.error, id); });
 }
 
 export async function getQueue(): Promise<QueueItem[]> {
@@ -67,21 +74,21 @@ export async function getQueue(): Promise<QueueItem[]> {
 
 export async function markSyncing(id: string): Promise<void> {
   const db = await database;
-  await db.withTransactionAsync(async () => {
-    await db.runAsync('UPDATE sync_queue SET attempts = attempts + 1 WHERE message_id = ?', id);
-    await db.runAsync("UPDATE messages SET status = 'syncing', error = NULL WHERE id = ?", id);
-  });
+  await serializedWrite(() => db.withExclusiveTransactionAsync(async txn => {
+    await txn.runAsync('UPDATE sync_queue SET attempts = attempts + 1 WHERE message_id = ?', id);
+    await txn.runAsync("UPDATE messages SET status = 'syncing', error = NULL WHERE id = ?", id);
+  }));
 }
 
 export async function markDelivered(id: string): Promise<void> {
   const db = await database;
-  await db.withTransactionAsync(async () => {
-    await db.runAsync("UPDATE messages SET status = 'delivered', error = NULL WHERE id = ?", id);
-    await db.runAsync('DELETE FROM sync_queue WHERE message_id = ?', id);
-  });
+  await serializedWrite(() => db.withExclusiveTransactionAsync(async txn => {
+    await txn.runAsync("UPDATE messages SET status = 'delivered', error = NULL WHERE id = ?", id);
+    await txn.runAsync('DELETE FROM sync_queue WHERE message_id = ?', id);
+  }));
 }
 
 export async function markPending(id: string, error: string | null = null): Promise<void> {
   const db = await database;
-  await db.runAsync("UPDATE messages SET status = 'pending', error = ? WHERE id = ?", error, id);
+  await serializedWrite(async () => { await db.runAsync("UPDATE messages SET status = 'pending', error = ? WHERE id = ?", error, id); });
 }
