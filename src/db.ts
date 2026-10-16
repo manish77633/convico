@@ -61,7 +61,7 @@ export async function updateMessage(id: string, changes: Pick<ChatMessage, 'cont
 export async function getQueue(): Promise<QueueItem[]> {
   const db = await database;
   const rows = await db.getAllAsync<{message_id: string; created_at: number; attempts: number}>(
-    'SELECT * FROM sync_queue ORDER BY created_at, message_id');
+    'SELECT * FROM sync_queue ORDER BY created_at, rowid');
   return rows.map(row => ({messageId: row.message_id, createdAt: row.created_at, attempts: row.attempts}));
 }
 

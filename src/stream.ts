@@ -4,25 +4,40 @@ export class OfflineError extends Error {
   constructor() { super('Connection lost during response'); }
 }
 
-export async function streamMockResponse(
+export function streamMockResponse(
   prompt: string,
   signal: AbortSignal,
   isOnline: () => boolean,
   onToken: (token: string, count: number, elapsedMs: number) => void,
 ): Promise<void> {
   const words = `${SCRIPT} Your message was: ${prompt.slice(0, 120)}.`.split(/\s+/);
-  const start = performance.now();
-  for (let index = 0; index < words.length; index += 1) {
-    if (signal.aborted) throw new Error('Stream cancelled');
-    if (!isOnline()) throw new OfflineError();
-    // One token every 25 ms targets 40 tokens/sec. Timer scheduling may vary by device.
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, 25);
-      signal.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('Stream cancelled')); }, {once: true});
-    });
-    if (!isOnline()) throw new OfflineError();
-    onToken(`${index === 0 ? '' : ' '}${words[index]}`, index + 1, performance.now() - start);
-  }
+  return new Promise<void>((resolve, reject) => {
+    const start = performance.now();
+    let index = 0;
+    let timer: ReturnType<typeof setInterval>;
+    const finish = (error?: Error) => {
+      clearInterval(timer);
+      signal.removeEventListener('abort', abort);
+      if (error) reject(error); else resolve();
+    };
+    const abort = () => finish(isOnline() ? new Error('Stream cancelled') : new OfflineError());
+    if (signal.aborted) { reject(new Error('Stream cancelled')); return; }
+    if (!isOnline()) { reject(new OfflineError()); return; }
+    signal.addEventListener('abort', abort, {once: true});
+    // One timer catches up after busy JS frames while preserving the 22 ms token clock.
+    timer = setInterval(() => {
+      if (!isOnline()) { finish(new OfflineError()); return; }
+      const elapsed = performance.now() - start;
+      const due = Math.min(words.length, Math.floor(elapsed / 22));
+      try {
+        while (index < due) {
+          onToken(`${index === 0 ? '' : ' '}${words[index]}`, index + 1, elapsed);
+          index += 1;
+        }
+      } catch (cause) { finish(cause instanceof Error ? cause : new Error(String(cause))); return; }
+      if (index === words.length) finish();
+    }, 16);
+  });
 }
 
 export async function mockAcknowledge(id: string, signal: AbortSignal, isOnline: () => boolean): Promise<string> {

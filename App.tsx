@@ -1,20 +1,88 @@
+import React, { memo, useCallback, useRef, useState } from 'react';
+import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming } from 'react-native-reanimated';
+import { useChat } from './src/useChat';
+import type { ChatMessage, StreamMetrics } from './src/types';
 
-export default function App() {
-  return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
-  );
+const C = {bg: '#11151b', panel: '#1b222b', assistant: '#242d38', user: '#315b5a', text: '#f0f0e9', muted: '#a6b2b8', accent: '#a4d4be', danger: '#ffadad'};
+
+function Pulse() {
+  const opacity = useSharedValue(0.35);
+  React.useEffect(() => { opacity.value = withRepeat(withTiming(1, {duration: 650}), -1, true); }, [opacity]);
+  const style = useAnimatedStyle(() => ({opacity: opacity.value}));
+  return <Animated.View style={[styles.pulse, style]} />;
 }
 
+const Bubble = memo(function Bubble({message, onReply, onRetry}: {message: ChatMessage; onReply: (message: ChatMessage) => void; onRetry: (message: ChatMessage) => void}) {
+  const translation = useSharedValue(0);
+  const reply = useCallback(() => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); onReply(message); }, [message, onReply]);
+  const gesture = Gesture.Pan().activeOffsetX([-14, 14]).failOffsetY([-12, 12])
+    .onUpdate(event => { translation.value = Math.max(0, Math.min(88, event.translationX)); })
+    .onEnd(() => { if (translation.value > 65) runOnJS(reply)(); translation.value = withSpring(0); });
+  const animatedStyle = useAnimatedStyle(() => ({transform: [{translateX: translation.value}]}));
+  const isUser = message.role === 'user';
+  return <GestureDetector gesture={gesture}><Animated.View style={[styles.bubbleOuter, isUser && styles.userOuter, animatedStyle]}>
+    <View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
+      {isUser && message.replyToId && <Text style={styles.replyLabel}>↪ Reply</Text>}
+      <Text style={styles.messageText}>{message.content || 'Thinking'}</Text>
+      <View style={styles.metaLine}>{message.status === 'streaming' && <Pulse />}
+        <Text style={styles.metaText}>{new Date(message.createdAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})} · {message.status === 'pending' ? '◷ Pending' : message.status === 'syncing' ? '↻ Syncing' : message.status === 'failed' ? 'Failed' : message.status === 'streaming' ? 'Streaming' : 'Delivered'}</Text></View>
+      {message.error && <Text style={styles.errorText}>{message.error}</Text>}
+      {message.status === 'failed' && <Pressable accessibilityRole="button" onPress={() => onRetry(message)}><Text style={styles.retryText}>{isUser ? 'Retry delivery' : 'Retry response'}</Text></Pressable>}
+    </View>
+  </Animated.View></GestureDetector>;
+});
+
+function Metrics({metrics, renders}: {metrics: StreamMetrics; renders: number}) {
+  return <View style={styles.metrics}><Text style={styles.metricsText}>TTFT {metrics.ttftMs === null ? '—' : `${Math.round(metrics.ttftMs)} ms`}</Text><Text style={styles.metricsText}>{metrics.tokensPerSecond.toFixed(1)} tok/s</Text><Text style={styles.metricsText}>Chat renders {renders}</Text></View>;
+}
+
+function ChatScreen() {
+  const {messages, online, ready, error, metrics, send, retry, clearError} = useChat();
+  const [draft, setDraft] = useState('');
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
+  const atBottom = useRef(true);
+  const list = useRef<FlatList<ChatMessage>>(null);
+  const renders = useRef(0);
+  renders.current += 1;
+  const onReply = useCallback((message: ChatMessage) => setReplyTo(message), []);
+  const onRetry = useCallback((message: ChatMessage) => { void retry(message); }, [retry]);
+  const submit = useCallback(async () => {
+    if (sendingRef.current || !draft.trim()) return;
+    sendingRef.current = true;
+    setSending(true);
+    try { const saved = await send(draft, replyTo?.id ?? null); if (saved) { setDraft(''); setReplyTo(null); atBottom.current = true; setTimeout(() => list.current?.scrollToEnd({animated: true}), 80); } }
+    finally { sendingRef.current = false; setSending(false); }
+  }, [draft, replyTo, send, sending]);
+  const renderItem = useCallback(({item}: {item: ChatMessage}) => <Bubble message={item} onReply={onReply} onRetry={onRetry} />, [onReply, onRetry]);
+  return <SafeAreaView style={styles.screen}><StatusBar style="light" /><KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <View style={styles.header}><View><Text style={styles.title}>convico<Text style={styles.titleAccent}>.ai</Text></Text><Text style={styles.subtitle}>A conversation that stays with you</Text></View><View style={[styles.connection, online ? styles.online : styles.offline]}><Text style={styles.connectionText}>{online ? '● Online' : '◷ Offline'}</Text></View></View>
+    <Metrics metrics={metrics} renders={renders.current} />
+    {error && <Pressable onPress={clearError} style={styles.banner}><Text style={styles.errorText}>{error}  ×</Text></Pressable>}
+    <FlatList ref={list} data={messages} renderItem={renderItem} keyExtractor={item => item.id} style={styles.fill} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled"
+      initialNumToRender={16} maxToRenderPerBatch={12} windowSize={9} removeClippedSubviews={Platform.OS === 'android'}
+      onScroll={event => { const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent; atBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 100; }} scrollEventThrottle={100}
+      onContentSizeChange={() => { if (atBottom.current) list.current?.scrollToEnd({animated: false}); }}
+      ListEmptyComponent={<View style={styles.empty}><Text style={styles.emptyEyebrow}>YOUR SPACE</Text><Text style={styles.emptyTitle}>{ready ? 'What’s on your mind?' : 'Opening your chat…'}</Text><Text style={styles.emptyCopy}>Ask a question, explore an idea, or make a plan. Your messages stay here, even when you’re offline.</Text></View>} />
+    {replyTo && <View style={styles.replyBar}><Text style={styles.replyText} numberOfLines={1}>Replying to {replyTo.role}: {replyTo.content}</Text><Pressable onPress={() => setReplyTo(null)}><Text style={styles.close}>×</Text></Pressable></View>}
+    <View style={styles.composer}><TextInput style={styles.input} value={draft} onChangeText={setDraft} placeholder="Ask anything…" placeholderTextColor={C.muted} multiline maxLength={2000} accessibilityLabel="Message" />
+      <Pressable accessibilityRole="button" accessibilityLabel="Send message" disabled={!ready || sending || !draft.trim()} onPress={() => { void submit(); }} style={[styles.send, (!ready || sending || !draft.trim()) && styles.disabled]}><Text style={styles.sendText}>↑</Text></Pressable></View>
+  </KeyboardAvoidingView></SafeAreaView>;
+}
+
+export default function App() { return <GestureHandlerRootView style={styles.fill}><SafeAreaProvider><ChatScreen /></SafeAreaProvider></GestureHandlerRootView>; }
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  fill: {flex: 1}, screen: {flex: 1, backgroundColor: C.bg}, header: {paddingHorizontal: 18, paddingTop: 14, paddingBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'},
+  title: {fontSize: 23, fontWeight: '700', color: C.text, letterSpacing: -0.7}, titleAccent: {color: C.accent}, subtitle: {fontSize: 11, color: C.muted, marginTop: 3}, connection: {paddingVertical: 7, paddingHorizontal: 10, borderRadius: 20}, online: {backgroundColor: '#25443d'}, offline: {backgroundColor: '#594526'}, connectionText: {color: C.text, fontSize: 12},
+  metrics: {marginHorizontal: 16, marginBottom: 8, backgroundColor: C.panel, borderRadius: 12, padding: 10, flexDirection: 'row', justifyContent: 'space-between'}, metricsText: {color: C.accent, fontSize: 11, fontWeight: '600'}, banner: {marginHorizontal: 16, padding: 8, backgroundColor: '#53313e', borderRadius: 8},
+  listContent: {paddingHorizontal: 14, paddingBottom: 12}, bubbleOuter: {marginVertical: 5, maxWidth: '88%', alignSelf: 'flex-start'}, userOuter: {alignSelf: 'flex-end'}, bubble: {paddingHorizontal: 14, paddingVertical: 11, borderRadius: 17}, userBubble: {backgroundColor: C.user, borderBottomRightRadius: 4}, assistantBubble: {backgroundColor: C.assistant, borderBottomLeftRadius: 4},
+  messageText: {color: C.text, fontSize: 15, lineHeight: 22}, replyLabel: {color: C.accent, fontSize: 11, marginBottom: 5}, metaLine: {flexDirection: 'row', alignItems: 'center', marginTop: 7}, metaText: {color: '#d1dbed', fontSize: 10}, pulse: {width: 7, height: 7, borderRadius: 4, backgroundColor: C.accent, marginRight: 5}, errorText: {color: C.danger, fontSize: 11}, retryText: {color: C.accent, marginTop: 6, fontSize: 12, fontWeight: '700'},
+  empty: {paddingHorizontal: 28, paddingTop: 55, alignItems: 'flex-start'}, emptyEyebrow: {color: C.accent, fontSize: 10, fontWeight: '700', letterSpacing: 2, marginBottom: 12}, emptyTitle: {color: C.text, fontSize: 24, fontWeight: '600', marginBottom: 10, letterSpacing: -0.5}, emptyCopy: {color: C.muted, fontSize: 13, lineHeight: 20}, replyBar: {backgroundColor: C.panel, marginHorizontal: 12, padding: 9, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}, replyText: {color: C.accent, flex: 1, fontSize: 12}, close: {color: C.text, fontSize: 20, paddingHorizontal: 8}, composer: {flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 12, paddingVertical: 10, backgroundColor: C.panel}, input: {flex: 1, maxHeight: 130, minHeight: 42, backgroundColor: C.bg, color: C.text, borderRadius: 20, paddingHorizontal: 15, paddingTop: 11, paddingBottom: 9, fontSize: 15}, send: {backgroundColor: C.user, height: 42, width: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', marginLeft: 8}, disabled: {opacity: 0.45}, sendText: {color: C.text, fontSize: 25, fontWeight: '700'},
 });
