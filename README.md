@@ -4,7 +4,7 @@ A standalone Expo/React Native TypeScript chat app with a local mock AI stream a
 
 ## Install on an Android phone
 
-[Download the Android APK](downloads/convico-android.apk) (44.3 MiB), open it on the phone, and allow installation from your browser or Files app if Android asks. This testing APK contains ARM64 and ARMv7 native libraries for Android phones; x86 emulator libraries are omitted to keep it small. It is signed with the local development key rather than a Play Store release key. SHA-256: `35197f6f3845c8c54c61d07078f5181ae891448a6774531ee6ebb57b28e08c47`.
+[Download the Android APK](downloads/convico-android.apk) (45.0 MiB), open it on the phone, and allow installation from your browser or Files app if Android asks. This testing APK contains ARM64 and ARMv7 native libraries for Android phones; x86 emulator libraries are omitted to keep it small. It is signed with the local development key rather than a Play Store release key. SHA-256: `9cdbc0c48bace5c29e0ff3cae79e3d408ac430ab98a04e16c55bb5536ab90d66`.
 
 ## Run
 
@@ -28,7 +28,7 @@ For an APK with the JavaScript bundle included, use `npx expo run:android --vari
 
 The composer shows a microphone when empty and a Send button when text is entered. Its emoji control opens a small picker. Tap the mic to request permission and start recording. The compact recording panel shows the real microphone metering waveform and elapsed timer, with Delete, Pause/Resume, and Send controls. Native pause/resume appends to the same recording and excludes paused time. Send finalizes and saves the whole voice message in one tap. Recordings shorter than half a second are rejected; recording stops at two minutes. Moving the app to the background stops recording. Playback supports play, pause, resume, and replay. A single player prevents overlapping voice messages and pauses when the app leaves the foreground.
 
-The screenshot-inspired composer and pause/resume changes are currently source changes only. The download APK above was built before this UI revision; a fresh native build is needed to install the revised screen. The user requested no runtime test for this revision.
+The download APK includes the screenshot-inspired composer and pause/resume changes. The Android release build succeeded; the user requested no runtime test for this revision, so recording and playback still need a phone check.
 
 `expo-audio` writes `.m4a` files into the app's persistent document directory; `expo-file-system` checks file existence and deletes canceled recordings. SQLite stores the URI, duration, waveform samples, and message status; it does not store audio BLOBs. Audio messages use the same durable chronological `sync_queue` as text. On reconnect, the local mock acknowledgement changes them from Pending hai to Local sync hua. **There is no audio upload, transcription, remote recipient, or AI voice response.** The voice file remains on this device, so another device cannot play it. An uninstall removes app-private files. The microphone permission is configured by the `expo-audio` config plugin; installing this feature requires a fresh native build/APK, not an OTA JavaScript update.
 
