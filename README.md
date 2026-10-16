@@ -39,8 +39,10 @@ On the Android API 37 emulator, the release APK launched with its bundled JavaSc
 
 ![Empty chat screen](docs/empty-final.png)
 
-[Watch the two-minute emulator demo](docs/convico-demo.mp4).
+![Different replies for planning and debugging prompts](docs/prompt-aware.png)
+
+[Watch the two-minute core demo](docs/convico-demo.mp4) or the [updated prompt-aware demo](docs/prompt-aware-demo.mp4). The core demo was recorded before the prompt-aware mock reply update; the second clip shows the current behavior.
 
 ## Submission and limits
 
-The public source repository is [manish77633/convico](https://github.com/manish77633/convico). The demo video is included in `docs/convico-demo.mp4`; the commit history uses conventional messages. The 5,000-message performance goal is a bonus and has not been benchmarked. The mock acknowledgement is local only, so cross-device delivery is outside this demo.
+The public source repository is [manish77633/convico](https://github.com/manish77633/convico). Both demo videos are included in `docs/`; the commit history uses conventional messages. The 5,000-message performance goal is a bonus and has not been benchmarked. The mock acknowledgement is local only, so cross-device delivery is outside this demo.
