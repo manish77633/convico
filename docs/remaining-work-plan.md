@@ -13,7 +13,18 @@ Created 2026-10-16. This is a plan for a later implementation pass. The core app
 
 **Done when:** A reproducible release-build measurement and its limits are documented; any identified frame regression is fixed or explicitly reported.
 
-## 2. Finish native interaction verification
+## 2. Make mock replies easier to read, with Hinglish support
+
+**Current state:** `src/stream.ts` uses English intent templates. They vary by prompt type but can feel long and repetitive. A local mock cannot answer arbitrary factual questions like a real AI model.
+
+1. Shorten each intent template to plain words and 2–3 clear steps. Lead with the useful action; avoid repeated demo explanations inside every reply. Preserve a visible, honest note in the UI/README that replies are simulated.
+2. Detect common Roman Hindi/Hinglish words and Devanagari input, then choose a simple Hinglish template. Keep English for English prompts. Add an explicit language choice only if auto-detection proves unreliable in manual checks.
+3. Keep the token stream at 30–50 tokens/second and preserve line breaks if using short lists. Check that long text remains readable in the bubble and while the keyboard is open.
+4. Verify at least planning, debugging, writing, greeting, and unknown-question prompts in English and Hinglish. Unknown factual questions should say the local mock cannot verify facts instead of inventing an answer.
+
+**Done when:** A reader can understand the reply on first pass, Hinglish prompts receive Hinglish text, and the app does not imply a real AI service is running.
+
+## 3. Finish native interaction verification
 
 **Current state:** Swipe-to-reply worked on the emulator. Physical haptic feel and keyboard transitions were not checked on a phone.
 
@@ -23,7 +34,7 @@ Created 2026-10-16. This is a plan for a later implementation pass. The core app
 
 **Done when:** The physical-device behaviors above are observed and documented, or a specific limitation is reported.
 
-## 3. Add focused automated tests (bonus)
+## 4. Add focused automated tests (bonus)
 
 **Current state:** TypeScript, lint, Expo Doctor, and manual Android flows passed; no Jest/Detox suite exists.
 
@@ -34,7 +45,7 @@ Created 2026-10-16. This is a plan for a later implementation pass. The core app
 
 **Done when:** The important stream and sync state transitions have repeatable tests that would fail on an actual ordering or retry regression.
 
-## 4. Scale cached history to 5,000+ messages (bonus)
+## 5. Scale cached history to 5,000+ messages (bonus)
 
 **Current state:** `FlatList` virtualizes rendered rows, but `src/db.ts:getMessages()` loads the entire thread and `src/useChat.ts` keeps the full array in memory.
 
@@ -45,7 +56,7 @@ Created 2026-10-16. This is a plan for a later implementation pass. The core app
 
 **Done when:** Initial load uses bounded pages and the 5,000-message scenario has documented device measurements.
 
-## 5. Optional audio waveform (bonus, last)
+## 6. Optional audio waveform (bonus, last)
 
 1. Add a clearly labeled **mock** voice preview/playback action to a message. It should start, pause, and stop a timed sample state; no microphone permission or real audio recording is needed.
 2. Animate waveform bars through Reanimated shared values on the UI thread, driven by deterministic sample amplitudes and synchronized with the mock playback position. Clean up animation/timers on stop and unmount.
@@ -55,4 +66,4 @@ Created 2026-10-16. This is a plan for a later implementation pass. The core app
 
 ## Later execution order
 
-Complete items 1 and 2 first because they close verification gaps in the core brief. Then add tests, pagination, and the optional waveform in that order. After implementation, run one consolidated TypeScript/lint/test pass, a release Android check, and update the README/demo with measured outcomes.
+Complete items 1–3 first because they close the performance, readability, and native UX gaps. Then add tests, pagination, and the optional waveform in that order. After implementation, run one consolidated TypeScript/lint/test pass, a release Android check, and update the README/demo with measured outcomes.
