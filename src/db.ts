@@ -9,13 +9,16 @@ type MessageRow = {
   id: string; thread_id: string; role: ChatMessage['role']; content: string;
   created_at: number; status: ChatMessage['status']; reply_to_id: string | null;
   request_id: string | null; error: string | null;
+  kind: 'text' | 'audio'; audio_uri: string | null; audio_duration_ms: number | null; audio_waveform: string | null;
 };
 let writeChain: Promise<void> = Promise.resolve();
 
 function fromRow(row: MessageRow): ChatMessage {
   return {id: row.id, threadId: row.thread_id, role: row.role, content: row.content,
     createdAt: row.created_at, status: row.status, replyToId: row.reply_to_id,
-    requestId: row.request_id, error: row.error};
+    requestId: row.request_id, error: row.error, kind: row.kind ?? 'text',
+    audioUri: row.audio_uri, audioDurationMs: row.audio_duration_ms,
+    audioWaveform: row.audio_waveform ? JSON.parse(row.audio_waveform) as number[] : null};
 }
 
 function serializedWrite(task: () => Promise<void>): Promise<void> {
@@ -40,6 +43,13 @@ export async function initDatabase(): Promise<void> {
       attempts INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS sync_queue_order ON sync_queue(created_at, message_id);`);
+  const columns = await db.getAllAsync<{name: string}>('PRAGMA table_info(messages)');
+  for (const [name, declaration] of [
+    ['kind', "TEXT NOT NULL DEFAULT 'text'"], ['audio_uri', 'TEXT'],
+    ['audio_duration_ms', 'INTEGER'], ['audio_waveform', 'TEXT'],
+  ] as const) {
+    if (!columns.some(column => column.name === name)) await db.execAsync(`ALTER TABLE messages ADD COLUMN ${name} ${declaration}`);
+  }
   // An interrupted sync is safe to resume with the same stable ID.
   await db.runAsync("UPDATE messages SET status = 'pending' WHERE status = 'syncing'");
   await db.runAsync("UPDATE messages SET status = 'failed', error = 'Stream interrupted; tap to retry' WHERE status = 'streaming'");
@@ -74,6 +84,7 @@ export async function getUsersMissingAssistant(): Promise<ChatMessage[]> {
   const db = await database;
   const rows = await db.getAllAsync<MessageRow>(`SELECT user.* FROM messages AS user
     WHERE user.thread_id = ? AND user.role = 'user' AND user.status = 'delivered'
+      AND user.kind = 'text'
       AND NOT EXISTS (SELECT 1 FROM messages AS answer WHERE answer.request_id = user.id AND answer.role = 'assistant')
     ORDER BY user.created_at, user.id`, THREAD_ID);
   return rows.map(fromRow);
@@ -90,9 +101,11 @@ export async function getFailedAssistants(): Promise<ChatMessage[]> {
 export async function addUserMessage(message: ChatMessage): Promise<void> {
   const db = await database;
   await serializedWrite(() => db.withExclusiveTransactionAsync(async txn => {
-    await txn.runAsync('INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    await txn.runAsync('INSERT INTO messages (id, thread_id, role, content, created_at, status, reply_to_id, request_id, error, kind, audio_uri, audio_duration_ms, audio_waveform) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       message.id, message.threadId, message.role, message.content, message.createdAt,
-      message.status, message.replyToId, message.requestId, message.error);
+      message.status, message.replyToId, message.requestId, message.error,
+      message.kind ?? 'text', message.audioUri ?? null, message.audioDurationMs ?? null,
+      message.audioWaveform ? JSON.stringify(message.audioWaveform) : null);
     await txn.runAsync('INSERT INTO sync_queue(message_id, created_at) VALUES (?, ?)',
       message.id, message.createdAt);
   }));
@@ -100,7 +113,7 @@ export async function addUserMessage(message: ChatMessage): Promise<void> {
 
 export async function addAssistantMessage(message: ChatMessage): Promise<void> {
   const db = await database;
-  await serializedWrite(async () => { await db.runAsync('INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  await serializedWrite(async () => { await db.runAsync('INSERT INTO messages (id, thread_id, role, content, created_at, status, reply_to_id, request_id, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
     message.id, message.threadId, message.role, message.content, message.createdAt,
     message.status, message.replyToId, message.requestId, message.error); });
 }
@@ -136,8 +149,8 @@ export async function seedBenchmarkMessages(count = 5000): Promise<void> {
         const userId = `bench-user-${String(pair).padStart(5, '0')}`;
         const answerId = `bench-answer-${String(pair).padStart(5, '0')}`;
         const created = 1700000000000 + pair * 2;
-        statements.push(`INSERT OR IGNORE INTO messages VALUES ('${userId}', 'main', 'user', 'Test prompt ${pair}: make a plan for this week.', ${created}, 'delivered', NULL, NULL, NULL);`);
-        statements.push(`INSERT OR IGNORE INTO messages VALUES ('${answerId}', 'main', 'assistant', 'Start with one clear goal. Choose a small step, try it, and review the result.', ${created + 1}, 'delivered', '${userId}', '${userId}', NULL);`);
+        statements.push(`INSERT OR IGNORE INTO messages (id, thread_id, role, content, created_at, status, reply_to_id, request_id, error) VALUES ('${userId}', 'main', 'user', 'Test prompt ${pair}: make a plan for this week.', ${created}, 'delivered', NULL, NULL, NULL);`);
+        statements.push(`INSERT OR IGNORE INTO messages (id, thread_id, role, content, created_at, status, reply_to_id, request_id, error) VALUES ('${answerId}', 'main', 'assistant', 'Start with one clear goal. Choose a small step, try it, and review the result.', ${created + 1}, 'delivered', '${userId}', '${userId}', NULL);`);
       }
       await txn.execAsync(statements.join('\n'));
     }

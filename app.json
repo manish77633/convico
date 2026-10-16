@@ -25,7 +25,16 @@
     },
     "plugins": [
       "expo-sqlite",
-      "./plugins/withShortCMakePath"
+      "./plugins/withShortCMakePath",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Voice message record karne ke liye microphone allow karo.",
+          "enableBackgroundRecording": false,
+          "enableBackgroundPlayback": false
+        }
+      ],
+      "expo-asset"
     ]
   }
 }

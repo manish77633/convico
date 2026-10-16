@@ -55,7 +55,7 @@ export function useChat() {
       replace(mergeMessages(messagesRef.current, page.messages));
       hasOlderRef.current = page.hasOlder;
       setHasOlder(page.hasOlder);
-    } catch (cause) { setError(`Could not load history: ${String(cause)}`); }
+    } catch (cause) { setError(`Purane messages nahi khule: ${String(cause)}`); }
     finally { loadingOlderRef.current = false; setLoadingOlder(false); }
   }, [replace]);
   const seedBenchmark = useCallback(async () => {
@@ -108,7 +108,7 @@ export function useChat() {
         status: 'failed', error: reason};
       try { await updateMessage(id, answer); } catch (dbError) { setError(String(dbError)); }
       patchMessage(id, answer);
-      if (!(cause instanceof OfflineError)) setError(`Response failed: ${reason}`);
+      if (!(cause instanceof OfflineError)) setError(`Jawab nahi aaya: ${reason}`);
       return false;
     }
   }, [patchMessage, replace]);
@@ -122,7 +122,7 @@ export function useChat() {
         if (!item) break;
         if (!onlineRef.current || !mounted.current) break;
         const user = await getMessageById(item.messageId);
-        if (!user) { setError('Queue contains a missing message'); break; }
+        if (!user) { setError('Queue mein ek message nahi mila'); break; }
         const controller = new AbortController();
         activeAbort.current = controller;
         try {
@@ -134,13 +134,13 @@ export function useChat() {
           activeAbort.current = null;
           // A delivered user message receives one assistant row keyed by requestId.
           const existing = await getAssistantForRequest(user.id);
-          if (!existing) await streamAnswer(user);
+          if (!existing && user.kind !== 'audio') await streamAnswer(user);
         } catch (cause) {
           activeAbort.current = null;
           const reason = cause instanceof Error ? cause.message : 'Sync failed';
           await markPending(user.id, reason);
           patchMessage(user.id, {status: 'pending', error: reason});
-          if (!(cause instanceof OfflineError)) setError(`Sync failed: ${reason}`);
+          if (!(cause instanceof OfflineError)) setError(`Sync nahi hua: ${reason}`);
           break; // Maintain chronological order; retry on next connectivity transition/manual retry.
         }
       }
@@ -159,7 +159,7 @@ export function useChat() {
           if (await streamAnswer(original, failed, Date.now())) break;
         }
       }
-    } catch (cause) { setError(`Queue error: ${String(cause)}`); }
+    } catch (cause) { setError(`Queue mein dikkat: ${String(cause)}`); }
     finally {
       processing.current = false;
       if (retryRequested.current && onlineRef.current) {
@@ -180,7 +180,7 @@ export function useChat() {
         if (disposed) return;
         await refresh();
         if (!disposed) setReady(true);
-      } catch (cause) { if (!disposed) setError(`Database error: ${String(cause)}`); }
+      } catch (cause) { if (!disposed) setError(`Chat storage mein dikkat: ${String(cause)}`); }
     })();
     const subscription = NetInfo.addEventListener(state => {
       const connected = Boolean(state.isConnected && state.isInternetReachable !== false);
@@ -214,20 +214,39 @@ export function useChat() {
         else void flush();
       }
       return true;
-    } catch (cause) { setError(`Could not save message: ${String(cause)}`); return false; }
+    } catch (cause) { setError(`Message save nahi hua: ${String(cause)}`); return false; }
+  }, [flush, ready, replace]);
+
+  const sendVoice = useCallback(async (audioUri: string, audioDurationMs: number, audioWaveform: number[], replyToId: string | null): Promise<boolean> => {
+    if (!ready || !audioUri || audioDurationMs < 500) return false;
+    const message: ChatMessage = {
+      id: Crypto.randomUUID(), threadId: THREAD_ID, role: 'user', content: '', createdAt: Date.now(),
+      status: 'pending', replyToId, requestId: null, error: null,
+      kind: 'audio', audioUri, audioDurationMs, audioWaveform,
+    };
+    try {
+      await addUserMessage(message);
+      replace(mergeMessages(messagesRef.current, [message]));
+      setError(null);
+      if (onlineRef.current) {
+        if (processing.current) retryRequested.current = true;
+        else void flush();
+      }
+      return true;
+    } catch (cause) { setError(`Voice message save nahi hua: ${String(cause)}`); return false; }
   }, [flush, ready, replace]);
 
   const retry = useCallback(async (message: ChatMessage) => {
-    if (!onlineRef.current) { setError('Reconnect to retry'); return; }
+    if (!onlineRef.current) { setError('Online aane par dobara try karo'); return; }
     if (message.role === 'user') { setError(null); if (processing.current) retryRequested.current = true; else void flush(); return; }
     if (message.status !== 'failed' || !message.requestId) return;
-    if (processing.current) { setError('Wait for the current response to finish'); return; }
+    if (processing.current) { setError('Pehle abhi wala jawab poora hone do'); return; }
     const user = await getMessageById(message.requestId);
-    if (!user) { setError('Original message is missing'); return; }
+    if (!user) { setError('Pehla message nahi mila'); return; }
     retryCounts.current.set(message.id, 0); // An explicit tap always gets one fresh attempt.
     processing.current = true;
     try { await streamAnswer(user, message, Date.now()); } finally { processing.current = false; }
   }, [flush, streamAnswer]);
 
-  return {messages, online, ready, hasOlder, loadingOlder, loadOlder, seedBenchmark, error, metrics, send, retry, clearError: () => setError(null)};
+  return {messages, online, ready, hasOlder, loadingOlder, loadOlder, seedBenchmark, error, metrics, send, sendVoice, retry, clearError: () => setError(null)};
 }

@@ -11,6 +11,10 @@ export interface ChatMessage {
   replyToId: string | null;
   requestId: string | null;
   error: string | null;
+  kind?: 'text' | 'audio';
+  audioUri?: string | null;
+  audioDurationMs?: number | null;
+  audioWaveform?: number[] | null;
 }
 
 export interface QueueItem {

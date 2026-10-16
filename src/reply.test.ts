@@ -17,6 +17,6 @@ describe('local mock replies', () => {
   });
 
   it('does not invent facts for unknown questions', () => {
-    expect(createMockReply('What is the stock price today?')).toContain('cannot verify facts');
+    expect(createMockReply('What is the stock price today?')).toContain('real AI ya source chahiye');
   });
 });
