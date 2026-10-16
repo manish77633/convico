@@ -43,4 +43,4 @@ On the Android API 37 emulator, the release APK launched with its bundled JavaSc
 
 ## Submission and limits
 
-The demo video is included in `docs/convico-demo.mp4`. The public GitHub repository remains dependent on a connected GitHub account or push-enabled repository destination; local conventional commits are present. The 5,000-message performance goal is a bonus and has not been benchmarked. The mock acknowledgement is local only, so cross-device delivery is outside this demo.
+The public source repository is [manish77633/convico](https://github.com/manish77633/convico). The demo video is included in `docs/convico-demo.mp4`; the commit history uses conventional messages. The 5,000-message performance goal is a bonus and has not been benchmarked. The mock acknowledgement is local only, so cross-device delivery is outside this demo.
