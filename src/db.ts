@@ -3,7 +3,20 @@ import type { ChatMessage, QueueItem } from './types';
 
 const database = SQLite.openDatabaseAsync('convico-chat.db');
 export const THREAD_ID = 'main';
+export const HISTORY_PAGE_SIZE = 64;
+export type MessageCursor = Pick<ChatMessage, 'createdAt' | 'id'>;
+type MessageRow = {
+  id: string; thread_id: string; role: ChatMessage['role']; content: string;
+  created_at: number; status: ChatMessage['status']; reply_to_id: string | null;
+  request_id: string | null; error: string | null;
+};
 let writeChain: Promise<void> = Promise.resolve();
+
+function fromRow(row: MessageRow): ChatMessage {
+  return {id: row.id, threadId: row.thread_id, role: row.role, content: row.content,
+    createdAt: row.created_at, status: row.status, replyToId: row.reply_to_id,
+    requestId: row.request_id, error: row.error};
+}
 
 function serializedWrite(task: () => Promise<void>): Promise<void> {
   const next = writeChain.then(task, task);
@@ -20,25 +33,58 @@ export async function initDatabase(): Promise<void> {
       reply_to_id TEXT, request_id TEXT, error TEXT
     );
     CREATE INDEX IF NOT EXISTS messages_order ON messages(thread_id, created_at, id);
+    CREATE INDEX IF NOT EXISTS messages_request ON messages(request_id);
+    CREATE INDEX IF NOT EXISTS messages_status ON messages(thread_id, role, status, created_at);
     CREATE TABLE IF NOT EXISTS sync_queue (
       message_id TEXT PRIMARY KEY REFERENCES messages(id), created_at INTEGER NOT NULL,
       attempts INTEGER NOT NULL DEFAULT 0
-    );`);
+    );
+    CREATE INDEX IF NOT EXISTS sync_queue_order ON sync_queue(created_at, message_id);`);
   // An interrupted sync is safe to resume with the same stable ID.
   await db.runAsync("UPDATE messages SET status = 'pending' WHERE status = 'syncing'");
   await db.runAsync("UPDATE messages SET status = 'failed', error = 'Stream interrupted; tap to retry' WHERE status = 'streaming'");
 }
 
-export async function getMessages(): Promise<ChatMessage[]> {
+export async function getMessagesPage(before?: MessageCursor, limit = HISTORY_PAGE_SIZE): Promise<{messages: ChatMessage[]; hasOlder: boolean}> {
   const db = await database;
-  const rows = await db.getAllAsync<{
-    id: string; thread_id: string; role: ChatMessage['role']; content: string;
-    created_at: number; status: ChatMessage['status']; reply_to_id: string | null;
-    request_id: string | null; error: string | null;
-  }>('SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at, id', THREAD_ID);
-  return rows.map(row => ({ id: row.id, threadId: row.thread_id, role: row.role,
-    content: row.content, createdAt: row.created_at, status: row.status,
-    replyToId: row.reply_to_id, requestId: row.request_id, error: row.error }));
+  const pageSize = Math.max(1, Math.min(200, Math.floor(limit)));
+  const rows = before
+    ? await db.getAllAsync<MessageRow>(`SELECT * FROM messages WHERE thread_id = ?
+        AND (created_at < ? OR (created_at = ? AND id < ?))
+        ORDER BY created_at DESC, id DESC LIMIT ?`, THREAD_ID, before.createdAt, before.createdAt, before.id, pageSize + 1)
+    : await db.getAllAsync<MessageRow>(
+      'SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at DESC, id DESC LIMIT ?', THREAD_ID, pageSize + 1);
+  return {messages: rows.slice(0, pageSize).reverse().map(fromRow), hasOlder: rows.length > pageSize};
+}
+
+export async function getMessageById(id: string): Promise<ChatMessage | null> {
+  const db = await database;
+  const row = await db.getFirstAsync<MessageRow>('SELECT * FROM messages WHERE id = ?', id);
+  return row ? fromRow(row) : null;
+}
+
+export async function getAssistantForRequest(id: string): Promise<ChatMessage | null> {
+  const db = await database;
+  const row = await db.getFirstAsync<MessageRow>(
+    "SELECT * FROM messages WHERE request_id = ? AND role = 'assistant' LIMIT 1", id);
+  return row ? fromRow(row) : null;
+}
+
+export async function getUsersMissingAssistant(): Promise<ChatMessage[]> {
+  const db = await database;
+  const rows = await db.getAllAsync<MessageRow>(`SELECT user.* FROM messages AS user
+    WHERE user.thread_id = ? AND user.role = 'user' AND user.status = 'delivered'
+      AND NOT EXISTS (SELECT 1 FROM messages AS answer WHERE answer.request_id = user.id AND answer.role = 'assistant')
+    ORDER BY user.created_at, user.id`, THREAD_ID);
+  return rows.map(fromRow);
+}
+
+export async function getFailedAssistants(): Promise<ChatMessage[]> {
+  const db = await database;
+  const rows = await db.getAllAsync<MessageRow>(`SELECT * FROM messages
+    WHERE thread_id = ? AND role = 'assistant' AND status = 'failed'
+    ORDER BY created_at, id`, THREAD_ID);
+  return rows.map(fromRow);
 }
 
 export async function addUserMessage(message: ChatMessage): Promise<void> {
@@ -70,6 +116,32 @@ export async function getQueue(): Promise<QueueItem[]> {
   const rows = await db.getAllAsync<{message_id: string; created_at: number; attempts: number}>(
     'SELECT * FROM sync_queue ORDER BY created_at, rowid');
   return rows.map(row => ({messageId: row.message_id, createdAt: row.created_at, attempts: row.attempts}));
+}
+
+export async function getNextQueueItem(): Promise<QueueItem | null> {
+  const db = await database;
+  const row = await db.getFirstAsync<{message_id: string; created_at: number; attempts: number}>(
+    'SELECT * FROM sync_queue ORDER BY created_at, rowid LIMIT 1');
+  return row ? {messageId: row.message_id, createdAt: row.created_at, attempts: row.attempts} : null;
+}
+
+/** Debug-only fixture; never called by the release UI. */
+export async function seedBenchmarkMessages(count = 5000): Promise<void> {
+  if (!__DEV__) return;
+  const db = await database;
+  await serializedWrite(() => db.withExclusiveTransactionAsync(async txn => {
+    for (let start = 0; start < count / 2; start += 125) {
+      const statements: string[] = [];
+      for (let pair = start; pair < Math.min(start + 125, count / 2); pair++) {
+        const userId = `bench-user-${String(pair).padStart(5, '0')}`;
+        const answerId = `bench-answer-${String(pair).padStart(5, '0')}`;
+        const created = 1700000000000 + pair * 2;
+        statements.push(`INSERT OR IGNORE INTO messages VALUES ('${userId}', 'main', 'user', 'Test prompt ${pair}: make a plan for this week.', ${created}, 'delivered', NULL, NULL, NULL);`);
+        statements.push(`INSERT OR IGNORE INTO messages VALUES ('${answerId}', 'main', 'assistant', 'Start with one clear goal. Choose a small step, try it, and review the result.', ${created + 1}, 'delivered', '${userId}', '${userId}', NULL);`);
+      }
+      await txn.execAsync(statements.join('\n'));
+    }
+  }));
 }
 
 export async function markSyncing(id: string): Promise<void> {

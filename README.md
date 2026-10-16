@@ -4,7 +4,7 @@ A standalone Expo/React Native TypeScript chat app with a local mock AI stream a
 
 ## Install on an Android phone
 
-[Download the Android APK](downloads/convico-android.apk) (87 MiB), open it on the phone, and allow installation from your browser or Files app if Android asks. This testing APK contains ARM64 and ARMv7 native libraries, plus emulator variants. It is signed with the local development key rather than a Play Store release key. SHA-256: `eb65e809dee1f8c598bcb6231454022314081a2e44b788425047517819e15254`.
+[Download the Android APK](downloads/convico-android.apk) (87 MiB), open it on the phone, and allow installation from your browser or Files app if Android asks. This testing APK contains ARM64 and ARMv7 native libraries, plus emulator variants. It is signed with the local development key rather than a Play Store release key. SHA-256: `0ac2ddaffd7335c18e027c16bff6e9e71604e41c6610de6c65e3a3cc678929b8`.
 
 ## Run
 
@@ -19,19 +19,21 @@ For an APK with the JavaScript bundle included, use `npx expo run:android --vari
 
 ## Architecture
 
-- `src/db.ts`: SQLite schema, message repository, transaction guarded insertion and delivery, ordered queue.
-- `src/stream.ts`: deterministic local acknowledgement and intent-aware mock reply generator. Different prompt types produce different outlines, but no AI model or fact lookup runs. The acknowledgement returns the stable user message ID as its idempotency key; it **does not contact a remote server**.
-- `src/useChat.ts`: React hook coordinating connectivity, optimistic state, queue draining, bounded response retries, errors, and cleanup.
-- `App.tsx`: virtualized chat list, composer, performance overlay, gestures, haptics, and UI thread pulse.
+- `src/db.ts`: SQLite schema, keyset-paged history, message repository, transaction guarded insertion and delivery, ordered queue.
+- `src/reply.ts` and `src/stream.ts`: short English/Hinglish mock outlines and clock-paced tokens. Different prompt types produce different outlines, but no AI model or fact lookup runs. The acknowledgement returns the stable user message ID as its idempotency key; it **does not contact a remote server**.
+- `src/useChat.ts`: React hook coordinating connectivity, paged visible history, database-backed queue draining, bounded response retries, errors, and cleanup.
+- `App.tsx` and `src/MockVoicePreview.tsx`: virtualized chat list, composer, performance overlay, gestures, haptics, UI-thread pulse, and a timed **mock** voice preview. The voice preview has play/pause/stop controls and UI-thread waveform animation; it does not record or play real audio.
 
 User messages are inserted into `messages` and `sync_queue` in one exclusive SQLite transaction. App writes are serialized. NetInfo connectivity triggers oldest-first queue draining. Only one worker runs at a time. Acknowledgement and queue removal happen together with status change to `delivered`. On network loss, an in-flight operation aborts. A pending message retains its stable ID and stays queued. Failed assistant responses are persisted and retried at most twice automatically during an online worker pass; tapping Retry allows another manual attempt. A restart turns interrupted `syncing` rows back to `pending` and interrupted `streaming` rows to `failed`.
 
-The mock schedules one whitespace-delimited token every 22 ms against an absolute clock, targeting about 45 tokens/second with room for emulator timer overhead. React state is painted at most about every 60 ms; individual bubbles are memoized, and FlatList renders a window of history. The active pulse uses Reanimated shared values on the UI thread. TTFT is wall-clock time from the user message creation (or retry request) to the first token; for offline messages it includes queue wait. Token rate is `(tokens - 1) / seconds since first token`, sampled at each UI paint. “Chat renders” counts renders of the chat screen component since mount, not frames per second. JavaScript timer scheduling may change the actual token rate. A 60 FPS target must be measured on the target device; this number is not an FPS claim.
+The mock schedules one whitespace-delimited token every 22 ms against an absolute clock, targeting about 45 tokens/second with room for emulator timer overhead. Line breaks between numbered steps are preserved. React state is painted at most about every 60 ms; individual bubbles are memoized. SQLite loads the newest 64 messages at startup and fetches earlier pages as the user scrolls up; the queue worker reads messages by ID directly from SQLite, even when they are outside the visible page. The active pulse and mock waveform use Reanimated shared values on the UI thread. TTFT is wall-clock time from the user message creation (or retry request) to the first token; for offline messages it includes queue wait. Token rate is `(tokens - 1) / seconds since first token`, sampled at each UI paint. “Chat renders” counts renders of the chat screen component since mount, not frames per second. JavaScript timer scheduling may change the actual token rate. A 60 FPS target must be measured on the target device; this number is not an FPS claim.
 
 ## Verification
 
 ```sh
 npx tsc --noEmit
+npm run lint
+npm test
 npx expo-doctor
 npm run android
 npx expo run:android --variant release
@@ -39,7 +41,7 @@ npx expo run:android --variant release
 
 Manual demo: send a prompt and watch streaming/metrics; switch Android to airplane mode, send two messages, then reconnect and observe ordered Pending → Syncing → Delivered states; swipe a bubble right to quote it and feel haptic feedback; interrupt connectivity during streaming and observe failure/retry. Restart while offline to confirm queued messages persist.
 
-On the Android API 37 emulator, the release APK launched with its bundled JavaScript while offline. Manual checks covered streaming, two queued messages persisting through a restart, oldest-first reconnect delivery, swipe-to-reply, and retry after a connection drop. The visible token-rate overlay read about 45–47 tokens/second during the recorded runs. This is an observed emulator result, not a guaranteed rate on other devices. Haptic feel and 60 FPS were not measured on physical hardware.
+On the Android API 37 emulator, the release APK launched with its bundled JavaScript while offline. Manual checks covered streaming, two queued messages persisting through a restart, oldest-first reconnect delivery, swipe-to-reply, retry after a connection drop, and the composer staying visible above the keyboard. The visible token-rate overlay read about 45–47 tokens/second during the recorded runs. In a debug build, long-pressing the app title inserted 5,000 older fixture messages into SQLite; an independent database read confirmed 5,006 total messages, the voice preview entered its playing state, and a Roman Hindi prompt produced a concise Hinglish plan. The updated release APK was reinstalled and the keyboard layout checked again. These are observed emulator results, not guarantees on other devices. Haptic feel and 60 FPS were not measured on physical hardware.
 
 ![Empty chat screen](docs/empty-final.png)
 
@@ -49,4 +51,4 @@ On the Android API 37 emulator, the release APK launched with its bundled JavaSc
 
 ## Submission and limits
 
-The public source repository is [manish77633/convico](https://github.com/manish77633/convico). Both demo videos are included in `docs/`; the commit history uses conventional messages. The 5,000-message performance goal is a bonus and has not been benchmarked. The mock acknowledgement is local only, so cross-device delivery is outside this demo.
+The public source repository is [manish77633/convico](https://github.com/manish77633/convico). Both demo videos are included in `docs/`; the commit history uses conventional messages. The 5,000-message fixture and paged loading are implemented, but a cold-load latency or scroll frame benchmark has not been measured. The mock acknowledgement is local only, so cross-device delivery is outside this demo.

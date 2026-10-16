@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import NetInfo from '@react-native-community/netinfo';
 import * as Crypto from 'expo-crypto';
-import { addAssistantMessage, addUserMessage, getMessages, getQueue, initDatabase, markDelivered, markPending, markSyncing, THREAD_ID, updateMessage } from './db';
+import { addAssistantMessage, addUserMessage, getAssistantForRequest, getFailedAssistants, getMessageById, getMessagesPage, getNextQueueItem, getUsersMissingAssistant, initDatabase, markDelivered, markPending, markSyncing, seedBenchmarkMessages, THREAD_ID, updateMessage } from './db';
+import { mergeMessages } from './history';
 import { mockAcknowledge, OfflineError, streamMockResponse } from './stream';
 import type { ChatMessage, StreamMetrics } from './types';
 
@@ -12,6 +13,8 @@ export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [online, setOnline] = useState(false);
   const [ready, setReady] = useState(false);
+  const [hasOlder, setHasOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<StreamMetrics>(emptyMetrics);
   const onlineRef = useRef(false);
@@ -21,6 +24,8 @@ export function useChat() {
   const retryRequested = useRef(false);
   const retryCounts = useRef(new Map<string, number>());
   const messagesRef = useRef<ChatMessage[]>([]);
+  const hasOlderRef = useRef(false);
+  const loadingOlderRef = useRef(false);
   const flushRef = useRef<(() => Promise<void>) | null>(null);
 
   const replace = useCallback((next: ChatMessage[]) => {
@@ -28,12 +33,40 @@ export function useChat() {
     if (mounted.current) setMessages(next);
   }, []);
   const patchMessage = useCallback((id: string, patch: Partial<ChatMessage>) => {
-    replace(messagesRef.current.map(message => message.id === id ? {...message, ...patch} : message));
+    const index = messagesRef.current.findIndex(message => message.id === id);
+    if (index < 0) return;
+    const next = messagesRef.current.slice();
+    next[index] = {...next[index], ...patch};
+    replace(next);
   }, [replace]);
-  const refresh = useCallback(async () => replace(await getMessages()), [replace]);
+  const refresh = useCallback(async () => {
+    const page = await getMessagesPage();
+    replace(page.messages);
+    hasOlderRef.current = page.hasOlder;
+    setHasOlder(page.hasOlder);
+  }, [replace]);
+  const loadOlder = useCallback(async () => {
+    if (!hasOlderRef.current || loadingOlderRef.current || messagesRef.current.length === 0) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const oldest = messagesRef.current[0];
+      const page = await getMessagesPage({createdAt: oldest.createdAt, id: oldest.id});
+      replace(mergeMessages(messagesRef.current, page.messages));
+      hasOlderRef.current = page.hasOlder;
+      setHasOlder(page.hasOlder);
+    } catch (cause) { setError(`Could not load history: ${String(cause)}`); }
+    finally { loadingOlderRef.current = false; setLoadingOlder(false); }
+  }, [replace]);
+  const seedBenchmark = useCallback(async () => {
+    if (!__DEV__) return;
+    try { await seedBenchmarkMessages(); await refresh(); }
+    catch (cause) { setError(`Benchmark seed failed: ${String(cause)}`); }
+  }, [refresh]);
 
   const streamAnswer = useCallback(async (user: ChatMessage, existing?: ChatMessage, requestedAt = user.createdAt): Promise<boolean> => {
     const id = existing?.id ?? Crypto.randomUUID();
+    let content = '';
     let answer: ChatMessage = existing ? {...existing, content: '', status: 'streaming', error: null} : {
       id, threadId: THREAD_ID, role: 'assistant', content: '', createdAt: Date.now(),
       status: 'streaming', replyToId: user.id, requestId: user.id, error: null,
@@ -42,12 +75,11 @@ export function useChat() {
       if (existing) await updateMessage(id, answer);
       else await addAssistantMessage(answer);
       if (existing) patchMessage(id, answer);
-      else replace([...messagesRef.current, answer]);
+      else replace(mergeMessages(messagesRef.current, [answer]));
       setError(null);
       setMetrics(emptyMetrics);
       const controller = new AbortController();
       activeAbort.current = controller;
-      let content = '';
       let firstAt: number | null = null;
       let firstElapsed: number | null = null;
       let lastPaint = 0;
@@ -72,7 +104,7 @@ export function useChat() {
       activeAbort.current = null;
       if (!mounted.current) return false;
       const reason = cause instanceof Error ? cause.message : 'Unknown stream error';
-      answer = {...answer, content: messagesRef.current.find(item => item.id === id)?.content ?? '',
+      answer = {...answer, content: content || messagesRef.current.find(item => item.id === id)?.content || existing?.content || '',
         status: 'failed', error: reason};
       try { await updateMessage(id, answer); } catch (dbError) { setError(String(dbError)); }
       patchMessage(id, answer);
@@ -86,10 +118,10 @@ export function useChat() {
     processing.current = true;
     try {
       while (onlineRef.current && mounted.current) {
-        const item = (await getQueue())[0];
+        const item = await getNextQueueItem();
         if (!item) break;
         if (!onlineRef.current || !mounted.current) break;
-        const user = messagesRef.current.find(message => message.id === item.messageId);
+        const user = await getMessageById(item.messageId);
         if (!user) { setError('Queue contains a missing message'); break; }
         const controller = new AbortController();
         activeAbort.current = controller;
@@ -101,7 +133,7 @@ export function useChat() {
           patchMessage(user.id, {status: 'delivered'});
           activeAbort.current = null;
           // A delivered user message receives one assistant row keyed by requestId.
-          const existing = messagesRef.current.find(message => message.requestId === user.id);
+          const existing = await getAssistantForRequest(user.id);
           if (!existing) await streamAnswer(user);
         } catch (cause) {
           activeAbort.current = null;
@@ -113,20 +145,19 @@ export function useChat() {
         }
       }
       // A crash between acknowledgement and assistant-row insertion leaves a delivered user row.
-      for (const user of messagesRef.current.filter(message => message.role === 'user' && message.status === 'delivered')) {
+      for (const user of await getUsersMissingAssistant()) {
         if (!onlineRef.current || !mounted.current) break;
-        if (!messagesRef.current.some(message => message.requestId === user.id)) await streamAnswer(user);
+        if (!await getAssistantForRequest(user.id)) await streamAnswer(user);
       }
       // Retry a failed response only after all queued user messages have been delivered.
-      while (onlineRef.current && mounted.current) {
-        const failed = messagesRef.current.find(message => message.role === 'assistant' && message.status === 'failed'
-          && (retryCounts.current.get(message.id) ?? 0) < MAX_STREAM_RETRIES);
-        if (!failed?.requestId) break;
-        const original = messagesRef.current.find(message => message.id === failed.requestId);
-        if (!original) break;
-        retryCounts.current.set(failed.id, (retryCounts.current.get(failed.id) ?? 0) + 1);
-        if (await streamAnswer(original, failed, Date.now())) continue;
-        if (!onlineRef.current) break;
+      for (const failed of await getFailedAssistants()) {
+        if (!onlineRef.current || !mounted.current || !failed.requestId) break;
+        const original = await getMessageById(failed.requestId);
+        if (!original) continue;
+        while (onlineRef.current && (retryCounts.current.get(failed.id) ?? 0) < MAX_STREAM_RETRIES) {
+          retryCounts.current.set(failed.id, (retryCounts.current.get(failed.id) ?? 0) + 1);
+          if (await streamAnswer(original, failed, Date.now())) break;
+        }
       }
     } catch (cause) { setError(`Queue error: ${String(cause)}`); }
     finally {
@@ -176,7 +207,7 @@ export function useChat() {
     };
     try {
       await addUserMessage(message);
-      replace([...messagesRef.current, message]);
+      replace(mergeMessages(messagesRef.current, [message]));
       setError(null);
       if (onlineRef.current) {
         if (processing.current) retryRequested.current = true;
@@ -190,15 +221,13 @@ export function useChat() {
     if (!onlineRef.current) { setError('Reconnect to retry'); return; }
     if (message.role === 'user') { setError(null); if (processing.current) retryRequested.current = true; else void flush(); return; }
     if (message.status !== 'failed' || !message.requestId) return;
-    const count = retryCounts.current.get(message.id) ?? 0;
-    if (count >= MAX_STREAM_RETRIES) { setError('Automatic retry limit reached. Tap again to retry manually.'); retryCounts.current.set(message.id, 0); return; }
-    const user = messagesRef.current.find(item => item.id === message.requestId);
-    if (!user) { setError('Original message is missing'); return; }
-    retryCounts.current.set(message.id, count + 1);
     if (processing.current) { setError('Wait for the current response to finish'); return; }
+    const user = await getMessageById(message.requestId);
+    if (!user) { setError('Original message is missing'); return; }
+    retryCounts.current.set(message.id, 0); // An explicit tap always gets one fresh attempt.
     processing.current = true;
     try { await streamAnswer(user, message, Date.now()); } finally { processing.current = false; }
   }, [flush, streamAnswer]);
 
-  return {messages, online, ready, error, metrics, send, retry, clearError: () => setError(null)};
+  return {messages, online, ready, hasOlder, loadingOlder, loadOlder, seedBenchmark, error, metrics, send, retry, clearError: () => setError(null)};
 }
