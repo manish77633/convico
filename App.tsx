@@ -2,6 +2,7 @@ import React, { memo, useCallback, useRef, useState } from 'react';
 import { FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as Haptics from 'expo-haptics';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming } from 'react-native-reanimated';
@@ -46,6 +47,7 @@ function Metrics({metrics, renders}: {metrics: StreamMetrics; renders: number}) 
 function ChatScreen() {
   const {messages, online, ready, hasOlder, loadingOlder, loadOlder, seedBenchmark, error, metrics, send, sendVoice, retry, clearError} = useChat();
   const [draft, setDraft] = useState('');
+  const [showEmoji, setShowEmoji] = useState(false);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
@@ -84,9 +86,15 @@ function ChatScreen() {
       onContentSizeChange={() => { if (atBottom.current) list.current?.scrollToEnd({animated: false}); }}
       ListEmptyComponent={<View style={styles.empty}><Text style={styles.emptyEyebrow}>AAPKI CHAT</Text><Text style={styles.emptyTitle}>{ready ? 'Kya baat karein?' : 'Chat khul rahi hai…'}</Text><Text style={styles.emptyCopy}>Sawal poocho, idea samjho, ya plan banao. Offline hone par bhi messages yahin rahenge.</Text></View>} />
     {replyTo && <View style={styles.replyBar}><Text style={styles.replyText} numberOfLines={1}>Jawab: {replyTo.kind === 'audio' ? 'Voice message' : replyTo.content}</Text><Pressable onPress={() => setReplyTo(null)}><Text style={styles.close}>×</Text></Pressable></View>}
-    {voice.phase === 'idle' ? <View style={styles.composer}><TextInput style={styles.input} value={draft} onChangeText={setDraft} placeholder="Kuch poocho ya likho…" placeholderTextColor={C.muted} multiline maxLength={2000} accessibilityLabel="Message likho" />
-      <Pressable accessibilityRole="button" accessibilityLabel="Voice record karo" disabled={!ready} onPress={() => { void voice.start(); }} style={[styles.mic, !ready && styles.disabled]}><Text style={styles.micText}>🎙</Text></Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel="Message bhejo" disabled={!ready || sending || !draft.trim()} onPress={() => { void submit(); }} style={[styles.send, (!ready || sending || !draft.trim()) && styles.disabled]}><Text style={styles.sendText}>↑</Text></Pressable></View> : <VoiceRecordingBar voice={voice} />}
+    {voice.phase === 'idle' ? <View style={styles.composerWrap}>
+      {showEmoji && <View style={styles.emojiTray}>{['😀', '😂', '❤️', '👍', '🙏', '🔥', '🎉', '😊', '🤔', '👏', '💚', '👋'].map(emoji => <Pressable key={emoji} accessibilityRole="button" accessibilityLabel={`${emoji} add karo`} onPress={() => setDraft(value => value + emoji)} style={styles.emojiChoice}><Text style={styles.emojiChoiceText}>{emoji}</Text></Pressable>)}</View>}
+      <View style={styles.composer}><View style={styles.inputShell}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Emoji chuno" onPress={() => { Keyboard.dismiss(); setShowEmoji(value => !value); }} style={styles.emojiButton}><MaterialCommunityIcons name="emoticon-outline" size={26} color={C.muted} /></Pressable>
+        <TextInput style={styles.input} value={draft} onChangeText={setDraft} onFocus={() => setShowEmoji(false)} placeholder="Message" placeholderTextColor={C.muted} multiline maxLength={2000} accessibilityLabel="Message likho" />
+      </View>
+      {draft.trim() ? <Pressable accessibilityRole="button" accessibilityLabel="Message bhejo" disabled={!ready || sending} onPress={() => { void submit(); }} style={[styles.send, (!ready || sending) && styles.disabled]}><MaterialCommunityIcons name="send" size={25} color="#071910" /></Pressable>
+        : <Pressable accessibilityRole="button" accessibilityLabel="Voice record karo" disabled={!ready} onPress={() => { setShowEmoji(false); void voice.start(); }} style={[styles.mic, !ready && styles.disabled]}><MaterialCommunityIcons name="microphone" size={27} color="#071910" /></Pressable>}
+      </View></View> : <VoiceRecordingBar voice={voice} />}
   </KeyboardAvoidingView></SafeAreaView>;
 }
 
@@ -98,8 +106,8 @@ const styles = StyleSheet.create({
   metrics: {marginHorizontal: 16, marginBottom: 8, backgroundColor: C.panel, borderRadius: 12, padding: 10, flexDirection: 'row', justifyContent: 'space-between'}, metricsText: {color: C.accent, fontSize: 11, fontWeight: '600'}, banner: {marginHorizontal: 16, padding: 8, backgroundColor: '#53313e', borderRadius: 8},
   listContent: {paddingHorizontal: 14, paddingBottom: 12}, bubbleOuter: {marginVertical: 5, maxWidth: '88%', alignSelf: 'flex-start'}, userOuter: {alignSelf: 'flex-end'}, bubble: {paddingHorizontal: 14, paddingVertical: 11, borderRadius: 17}, userBubble: {backgroundColor: C.user, borderBottomRightRadius: 4}, assistantBubble: {backgroundColor: C.assistant, borderBottomLeftRadius: 4},
   messageText: {color: C.text, fontSize: 15, lineHeight: 22}, replyLabel: {color: C.accent, fontSize: 11, marginBottom: 5}, metaLine: {flexDirection: 'row', alignItems: 'center', marginTop: 7}, metaText: {color: '#d1dbed', fontSize: 10}, pulse: {width: 7, height: 7, borderRadius: 4, backgroundColor: C.accent, marginRight: 5}, errorText: {color: C.danger, fontSize: 11}, retryText: {color: C.accent, marginTop: 6, fontSize: 12, fontWeight: '700'},
-  empty: {paddingHorizontal: 28, paddingTop: 55, alignItems: 'flex-start'}, emptyEyebrow: {color: C.accent, fontSize: 10, fontWeight: '700', letterSpacing: 2, marginBottom: 12}, emptyTitle: {color: C.text, fontSize: 24, fontWeight: '600', marginBottom: 10, letterSpacing: -0.5}, emptyCopy: {color: C.muted, fontSize: 13, lineHeight: 20}, replyBar: {backgroundColor: C.panel, marginHorizontal: 12, padding: 9, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}, replyText: {color: C.accent, flex: 1, fontSize: 12}, close: {color: C.text, fontSize: 20, paddingHorizontal: 8}, composer: {flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 12, paddingVertical: 10, backgroundColor: C.panel}, input: {flex: 1, maxHeight: 130, minHeight: 42, backgroundColor: C.bg, color: C.text, borderRadius: 20, paddingHorizontal: 15, paddingTop: 11, paddingBottom: 9, fontSize: 15}, send: {backgroundColor: C.user, height: 42, width: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', marginLeft: 8}, disabled: {opacity: 0.45}, sendText: {color: C.text, fontSize: 25, fontWeight: '700'},
+  empty: {paddingHorizontal: 28, paddingTop: 55, alignItems: 'flex-start'}, emptyEyebrow: {color: C.accent, fontSize: 10, fontWeight: '700', letterSpacing: 2, marginBottom: 12}, emptyTitle: {color: C.text, fontSize: 24, fontWeight: '600', marginBottom: 10, letterSpacing: -0.5}, emptyCopy: {color: C.muted, fontSize: 13, lineHeight: 20}, replyBar: {backgroundColor: C.panel, marginHorizontal: 12, padding: 9, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}, replyText: {color: C.accent, flex: 1, fontSize: 12}, close: {color: C.text, fontSize: 20, paddingHorizontal: 8}, composerWrap: {backgroundColor: C.bg}, composer: {flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 9, paddingVertical: 8, gap: 8}, inputShell: {flex: 1, flexDirection: 'row', alignItems: 'flex-end', backgroundColor: '#202a2c', borderRadius: 25, minHeight: 48, paddingLeft: 3}, emojiButton: {width: 42, height: 48, alignItems: 'center', justifyContent: 'center'}, emojiText: {fontSize: 27, color: C.muted}, emojiTray: {flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', paddingHorizontal: 12, paddingVertical: 7, backgroundColor: C.panel}, emojiChoice: {width: '16%', alignItems: 'center', paddingVertical: 7}, emojiChoiceText: {fontSize: 22}, input: {flex: 1, maxHeight: 125, minHeight: 48, color: C.text, paddingRight: 12, paddingTop: 12, paddingBottom: 10, fontSize: 16}, send: {backgroundColor: '#02c767', height: 48, width: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center'}, disabled: {opacity: 0.45}, sendText: {color: '#071910', fontSize: 25, fontWeight: '900'},
   historyLabel: {color: C.muted, textAlign: 'center', fontSize: 11, paddingVertical: 8},
-  mic: {backgroundColor: '#25443d', height: 42, width: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', marginLeft: 8},
-  micText: {color: C.text, fontSize: 19},
+  mic: {backgroundColor: '#02c767', height: 48, width: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center'},
+  micText: {color: '#071910', fontSize: 23},
 });

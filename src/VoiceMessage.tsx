@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { File } from 'expo-file-system';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { formatVoiceTime } from './VoiceRecorder';
 import type { ChatMessage } from './types';
 
@@ -68,7 +69,7 @@ export function VoiceMessage({message}: {message: ChatMessage}) {
   const levels = message.audioWaveform?.length ? message.audioWaveform : Array(24).fill(0.3) as number[];
   const bars = Array.from({length: 26}, (_, index) => levels[Math.min(levels.length - 1, Math.floor(index * levels.length / 26))]);
   return <View style={styles.root}>
-    <Pressable accessibilityRole="button" accessibilityLabel={active && playback.playing ? 'Voice pause karo' : 'Voice play karo'} onPress={() => { void playback.toggle(message); }} style={styles.play}><Text style={styles.playText}>{active && playback.playing ? 'Ⅱ' : '▶'}</Text></Pressable>
+    <Pressable accessibilityRole="button" accessibilityLabel={active && playback.playing ? 'Voice pause karo' : 'Voice play karo'} onPress={() => { void playback.toggle(message); }} style={styles.play}><MaterialCommunityIcons name={active && playback.playing ? 'pause' : 'play'} size={22} color="#f0f0e9" /></Pressable>
     <View style={styles.details}>
       <View style={styles.wave} accessibilityLabel="Voice message waveform">
         {bars.map((level, index) => <View key={index} style={[styles.bar, {height: 5 + level * 19, backgroundColor: index / bars.length <= progress ? '#f0f0e9' : '#9dc8b8'}]} />)}
