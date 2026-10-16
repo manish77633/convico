@@ -2,6 +2,10 @@
 
 A standalone Expo/React Native TypeScript chat app with a local mock AI stream and durable offline queue. No API key or backend is required.
 
+## Install on an Android phone
+
+[Download the Android APK](downloads/convico-android.apk) (87 MiB), open it on the phone, and allow installation from your browser or Files app if Android asks. This testing APK contains ARM64 and ARMv7 native libraries, plus emulator variants. It is signed with the local development key rather than a Play Store release key. SHA-256: `eb65e809dee1f8c598bcb6231454022314081a2e44b788425047517819e15254`.
+
 ## Run
 
 Requires Node 22, npm, and an Android emulator/device. On Windows, clone to a short path such as `E:\c`: Ninja's generated C++ object names can exceed the 260-character path limit when this project sits under a long directory name. The included Expo config plugin puts CMake staging at the project root to shorten release build paths. From the project directory:
