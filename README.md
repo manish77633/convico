@@ -16,7 +16,7 @@ For an APK with the JavaScript bundle included, use `npx expo run:android --vari
 ## Architecture
 
 - `src/db.ts`: SQLite schema, message repository, transaction guarded insertion and delivery, ordered queue.
-- `src/stream.ts`: deterministic local acknowledgement and token generator. The acknowledgement returns the stable user message ID as its idempotency key; it **does not contact a remote server**.
+- `src/stream.ts`: deterministic local acknowledgement and intent-aware mock reply generator. Different prompt types produce different outlines, but no AI model or fact lookup runs. The acknowledgement returns the stable user message ID as its idempotency key; it **does not contact a remote server**.
 - `src/useChat.ts`: React hook coordinating connectivity, optimistic state, queue draining, bounded response retries, errors, and cleanup.
 - `App.tsx`: virtualized chat list, composer, performance overlay, gestures, haptics, and UI thread pulse.
 
