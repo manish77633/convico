@@ -4,7 +4,7 @@ A standalone Expo/React Native TypeScript chat app with a local mock AI stream a
 
 ## Install on an Android phone
 
-[Download the Android APK (Direct Link)](https://github.com/manish77633/convico/raw/main/downloads/convico-android.apk) | [Repo File Link](downloads/convico-android.apk) (45.0 MiB), open it on the phone, and allow installation from your browser or Files app if Android asks. This testing APK contains ARM64 and ARMv7 native libraries for Android phones; x86 emulator libraries are omitted to keep it small. It is signed with the local development key rather than a Play Store release key. SHA-256: `8a1e477a6486c6ea5cc504f72ccffce4f86261738928c85da6d2ea66900f4dd9`.
+[Download the Android APK (Direct Link)](https://github.com/manish77633/convico/raw/main/downloads/convico-android.apk) | [Repo File Link](downloads/convico-android.apk) (45.0 MiB), open it on the phone, and allow installation from your browser or Files app if Android asks. This testing APK contains ARM64 and ARMv7 native libraries for Android phones; x86 emulator libraries are omitted to keep it small. It is signed with the local development key rather than a Play Store release key. SHA-256: `bcc2ad4f258fd8b72ad4385f1d17eb658066b3aaca91b51bc5f15f56c0b6e628`.
 
 ## Run
 
@@ -28,7 +28,7 @@ For an APK with the JavaScript bundle included, use `npx expo run:android --vari
 
 The composer shows a microphone when empty and a Send button when text is entered. Its emoji control opens a small picker. Tap the mic to request permission and start recording. The compact recording panel shows the real microphone metering waveform and elapsed timer, with Delete, Pause/Resume, and Send controls. Native pause/resume appends to the same recording and excludes paused time. Send finalizes and saves the whole voice message in one tap. Recordings shorter than half a second are rejected; recording stops at two minutes. Moving the app to the background stops recording. Playback supports play, pause, resume, and replay. A single player prevents overlapping voice messages and pauses when the app leaves the foreground.
 
-The download APK includes the voice composer with pause/resume and the Gemini backend integration. The Android release build succeeded; phone check is recommended for live hardware audio.
+The download APK includes the voice composer with pause/resume, native multipart voice upload via UploadTask, and Gemini audio TTS playback.
 
 `expo-audio` writes `.m4a` files into the app's persistent document directory; `expo-file-system` checks file existence and deletes canceled recordings. SQLite stores the URI, duration, waveform samples, and message status; it does not store audio BLOBs. Audio messages use the same durable chronological `sync_queue` as text. On reconnect, the local mock acknowledgement changes them from Pending hai to Local sync hua. **There is no audio upload, transcription, remote recipient, or AI voice response.** The voice file remains on this device, so another device cannot play it. An uninstall removes app-private files. The microphone permission is configured by the `expo-audio` config plugin; installing this feature requires a fresh native build/APK, not an OTA JavaScript update.
 

@@ -111,7 +111,7 @@ export function AssistantVoice({message}:{message:ChatMessage}) {
   const active=playback.activeId===message.id;
   const loading=playback.loadingId===message.id;
   return <View style={styles.assistantVoice}>
-    <Pressable accessibilityRole="button" accessibilityLabel={loading?'AI audio ban raha hai':active&&playback.playing?'AI audio pause karo':'AI audio play karo'} disabled={loading||!message.audioToken} onPress={()=>{void playback.toggle(message);}} style={styles.play}>
+    <Pressable accessibilityRole="button" accessibilityLabel={loading?'AI audio ban raha hai':active&&playback.playing?'AI audio pause karo':'AI audio play karo'} disabled={loading||(!message.audioToken && !message.audioUri)} onPress={()=>{void playback.toggle(message);}} style={styles.play}>
       <MaterialCommunityIcons name={loading?'loading':active&&playback.playing?'pause':'play'} size={20} color="#f0f0e9" />
     </Pressable>
     <Text style={styles.time}>{loading?'Audio ban raha hai…':active&&playback.playing?'Pause audio':'AI reply suno'}</Text>

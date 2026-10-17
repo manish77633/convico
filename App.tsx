@@ -32,7 +32,7 @@ const Bubble = memo(function Bubble({message, onReply, onRetry}: {message: ChatM
     <View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
       {isUser && message.replyToId && <Text style={styles.replyLabel}>↪ Jawab</Text>}
       {message.kind === 'audio' ? <VoiceMessage message={message} /> : <Text style={styles.messageText}>{message.content || (message.status==='failed'?'Jawab nahi aaya.':'Soch raha hoon...')}</Text>}
-      {message.role==='assistant' && message.status==='delivered' && message.audioToken && <AssistantVoice message={message} />}
+      {message.role==='assistant' && message.status==='delivered' && (message.audioToken || message.audioUri) && <AssistantVoice message={message} />}
       <View style={styles.metaLine}>{message.status === 'streaming' && <Pulse />}
       <Text style={styles.metaText}>{new Date(message.createdAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})} · {message.status === 'pending' ? '◷ Bhejne ke liye tap karo' : message.status === 'syncing' ? '↻ Bhej raha hai' : message.status === 'failed' ? 'Jawab nahi aaya' : message.status === 'streaming' ? 'Jawab aa raha hai' : 'Bhej diya'}</Text></View>
       {message.error && <Text style={styles.errorText}>{message.error}</Text>}
