@@ -9,7 +9,7 @@ type MessageRow = {
   id: string; thread_id: string; role: ChatMessage['role']; content: string;
   created_at: number; status: ChatMessage['status']; reply_to_id: string | null;
   request_id: string | null; error: string | null;
-  kind: 'text' | 'audio'; audio_uri: string | null; audio_duration_ms: number | null; audio_waveform: string | null;
+  kind: 'text' | 'audio'; audio_uri: string | null; audio_duration_ms: number | null; audio_waveform: string | null; audio_token: string | null;
 };
 let writeChain: Promise<void> = Promise.resolve();
 
@@ -18,7 +18,8 @@ function fromRow(row: MessageRow): ChatMessage {
     createdAt: row.created_at, status: row.status, replyToId: row.reply_to_id,
     requestId: row.request_id, error: row.error, kind: row.kind ?? 'text',
     audioUri: row.audio_uri, audioDurationMs: row.audio_duration_ms,
-    audioWaveform: row.audio_waveform ? JSON.parse(row.audio_waveform) as number[] : null};
+    audioWaveform: row.audio_waveform ? JSON.parse(row.audio_waveform) as number[] : null,
+    audioToken: row.audio_token ?? null};
 }
 
 function serializedWrite(task: () => Promise<void>): Promise<void> {
@@ -46,7 +47,7 @@ export async function initDatabase(): Promise<void> {
   const columns = await db.getAllAsync<{name: string}>('PRAGMA table_info(messages)');
   for (const [name, declaration] of [
     ['kind', "TEXT NOT NULL DEFAULT 'text'"], ['audio_uri', 'TEXT'],
-    ['audio_duration_ms', 'INTEGER'], ['audio_waveform', 'TEXT'],
+    ['audio_duration_ms', 'INTEGER'], ['audio_waveform', 'TEXT'], ['audio_token','TEXT'],
   ] as const) {
     if (!columns.some(column => column.name === name)) await db.execAsync(`ALTER TABLE messages ADD COLUMN ${name} ${declaration}`);
   }
@@ -113,15 +114,25 @@ export async function addUserMessage(message: ChatMessage): Promise<void> {
 
 export async function addAssistantMessage(message: ChatMessage): Promise<void> {
   const db = await database;
-  await serializedWrite(async () => { await db.runAsync('INSERT INTO messages (id, thread_id, role, content, created_at, status, reply_to_id, request_id, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  await serializedWrite(async () => { await db.runAsync('INSERT INTO messages (id, thread_id, role, content, created_at, status, reply_to_id, request_id, error, audio_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     message.id, message.threadId, message.role, message.content, message.createdAt,
-    message.status, message.replyToId, message.requestId, message.error); });
+    message.status, message.replyToId, message.requestId, message.error, message.audioToken ?? null); });
 }
 
 export async function updateMessage(id: string, changes: Pick<ChatMessage, 'content' | 'status' | 'error'>): Promise<void> {
   const db = await database;
   await serializedWrite(async () => { await db.runAsync('UPDATE messages SET content = ?, status = ?, error = ? WHERE id = ?',
     changes.content, changes.status, changes.error, id); });
+}
+
+export async function setAssistantAudio(id:string, uri:string):Promise<void> {
+  const db=await database;
+  await serializedWrite(async()=>{await db.runAsync("UPDATE messages SET audio_uri = ? WHERE id = ? AND role = 'assistant'",uri,id);});
+}
+
+export async function setAssistantToken(id:string, token:string|null):Promise<void> {
+  const db=await database;
+  await serializedWrite(async()=>{await db.runAsync("UPDATE messages SET audio_token = ? WHERE id = ? AND role = 'assistant'",token,id);});
 }
 
 export async function getQueue(): Promise<QueueItem[]> {

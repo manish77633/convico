@@ -7,7 +7,7 @@ import * as Haptics from 'expo-haptics';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming } from 'react-native-reanimated';
 import { useChat } from './src/useChat';
-import { VoiceMessage, VoicePlaybackProvider, useStopVoicePlayback } from './src/VoiceMessage';
+import { AssistantVoice, VoiceMessage, VoicePlaybackProvider, useStopVoicePlayback } from './src/VoiceMessage';
 import { useVoiceRecorder, VoiceRecordingBar } from './src/VoiceRecorder';
 import type { ChatMessage, StreamMetrics } from './src/types';
 
@@ -31,11 +31,12 @@ const Bubble = memo(function Bubble({message, onReply, onRetry}: {message: ChatM
   return <GestureDetector gesture={gesture}><Animated.View style={[styles.bubbleOuter, isUser && styles.userOuter, animatedStyle]}>
     <View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
       {isUser && message.replyToId && <Text style={styles.replyLabel}>↪ Jawab</Text>}
-      {message.kind === 'audio' ? <VoiceMessage message={message} /> : <Text style={styles.messageText}>{message.content || 'Soch raha hoon...'}</Text>}
+      {message.kind === 'audio' ? <VoiceMessage message={message} /> : <Text style={styles.messageText}>{message.content || (message.status==='failed'?'Jawab nahi aaya.':'Soch raha hoon...')}</Text>}
+      {message.role==='assistant' && message.status==='delivered' && message.audioToken && <AssistantVoice message={message} />}
       <View style={styles.metaLine}>{message.status === 'streaming' && <Pulse />}
-        <Text style={styles.metaText}>{new Date(message.createdAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})} · {message.status === 'pending' ? '◷ Pending hai' : message.status === 'syncing' ? '↻ Sync ho raha hai' : message.status === 'failed' ? 'Nahi gaya' : message.status === 'streaming' ? 'Jawab aa raha hai' : 'Local sync hua'}</Text></View>
+      <Text style={styles.metaText}>{new Date(message.createdAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})} · {message.status === 'pending' ? '◷ Bhejne ke liye tap karo' : message.status === 'syncing' ? '↻ Bhej raha hai' : message.status === 'failed' ? 'Jawab nahi aaya' : message.status === 'streaming' ? 'Jawab aa raha hai' : 'Bhej diya'}</Text></View>
       {message.error && <Text style={styles.errorText}>{message.error}</Text>}
-      {message.status === 'failed' && <Pressable accessibilityRole="button" onPress={() => onRetry(message)}><Text style={styles.retryText}>Dobara try karo</Text></Pressable>}
+      {(message.status === 'failed' || message.status === 'pending') && <Pressable accessibilityRole="button" onPress={() => onRetry(message)}><Text style={styles.retryText}>{message.status === 'pending' ? 'Bhejo' : 'Dobara try karo'}</Text></Pressable>}
     </View>
   </Animated.View></GestureDetector>;
 });
@@ -74,7 +75,7 @@ function ChatScreen() {
   }, [draft, replyTo, send, sending]);
   const renderItem = useCallback(({item}: {item: ChatMessage}) => <Bubble message={item} onReply={onReply} onRetry={onRetry} />, [onReply, onRetry]);
   return <SafeAreaView style={styles.screen}><StatusBar style="light" /><KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-    <View style={styles.header}><Pressable onLongPress={() => { if (__DEV__) void seedBenchmark(); }}><Text style={styles.title}>convico<Text style={styles.titleAccent}>.ai</Text></Text><Text style={styles.subtitle}>Local demo · chats isi device par hain</Text></Pressable><View style={[styles.connection, online ? styles.online : styles.offline]}><Text style={styles.connectionText}>{online ? '● Online' : '◷ Offline'}</Text></View></View>
+    <View style={styles.header}><Pressable onLongPress={() => { if (__DEV__) void seedBenchmark(); }}><Text style={styles.title}>convico<Text style={styles.titleAccent}>.ai</Text></Text><Text style={styles.subtitle}>Chats isi device par hain</Text></Pressable><View style={[styles.connection, online ? styles.online : styles.offline]}><Text style={styles.connectionText}>{online ? '● Online' : '◷ Offline'}</Text></View></View>
     <Metrics metrics={metrics} renders={renders.current} />
     {error && <Pressable onPress={clearError} style={styles.banner}><Text style={styles.errorText}>{error}  ×</Text></Pressable>}
     {voice.error && <Pressable onPress={voice.clearError} style={styles.banner}><Text style={styles.errorText}>{voice.error}  ×</Text></Pressable>}

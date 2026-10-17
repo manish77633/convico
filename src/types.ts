@@ -15,6 +15,7 @@ export interface ChatMessage {
   audioUri?: string | null;
   audioDurationMs?: number | null;
   audioWaveform?: number[] | null;
+  audioToken?: string | null;
 }
 
 export interface QueueItem {

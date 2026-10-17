@@ -8,6 +8,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withTiming } fr
 type Phase = 'idle' | 'starting' | 'recording' | 'paused' | 'ready' | 'sending';
 type VoiceDraft = {uri: string; durationMs: number; waveform: number[]};
 const LIMIT_MS = 120_000;
+const LIMIT_BYTES = 3_000_000;
 
 export function formatVoiceTime(milliseconds: number): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -45,6 +46,12 @@ export function useVoiceRecorder(onSend: (uri: string, durationMs: number, wavef
         if (uri) new File(uri).delete();
         setPhaseSafe('idle');
         setError('Kam se kam aadha second record karo');
+        return null;
+      }
+      if (new File(uri).size > LIMIT_BYTES) {
+        new File(uri).delete();
+        setPhaseSafe('idle');
+        setError('Recording 3 MB se badi hai. Chhoti recording banao.');
         return null;
       }
       const result = {uri, durationMs, waveform: levelsRef.current.length ? [...levelsRef.current] : [0.3]};

@@ -1,0 +1,5 @@
+# Real AI backend
+
+`EXPO_PUBLIC_API_BASE_URL` is set to `https://convico-backend.vercel.app` in the committed `.env` file. The ignored `.env.local` has the same URL for this workstation and can override it for a reachable local backend. A physical phone cannot reach a server at its own `localhost`. Never put `GEMINI_API_KEY`, Redis credentials, or `TTS_SIGNING_SECRET` in the app.
+
+The app keeps messages in local SQLite. Text is sent to `/api/chat`; recordings are uploaded as multipart audio to `/api/voice`. Voice replies show text immediately. Tapping their Play control calls `/api/tts` once, then stores the WAV locally for replay. User recordings also play from local storage. Failed replies appear in the chat with an explicit retry action. Offline messages remain pending and require a tap to send once online. No request is automatically retried after a timeout or reconnect. The backend requires Gemini, a TTS signing secret, and shared Redis environment variables as described in its README. Push the backend changes and redeploy the Vercel project before expecting audio playback; the previous deployment returns text only.
